@@ -1,7 +1,7 @@
 # OASIS_START
-# DO NOT EDIT (digest: e451b94c24a631ef9730ca99901e3717)
-# Ignore VCS directories, you can use the same kind of rule outside 
-# OASIS_START/STOP if you want to exclude directories that contains 
+# DO NOT EDIT (digest: efce97c63601b011ada3fa08000dae95)
+# Ignore VCS directories, you can use the same kind of rule outside
+# OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
 <**/.svn>: -traverse
 <**/.svn>: not_hygienic
@@ -15,8 +15,8 @@
 "_darcs": not_hygienic
 # Library async_find
 "lib/async_find.cmxs": use_async_find
-<lib/*.ml{,i}>: pkg_async
-<lib/*.ml{,i}>: pkg_threads
-<lib/*.ml{,i}>: pkg_sexplib.syntax
+<lib/*.ml{,i}>: package(async)
+<lib/*.ml{,i}>: package(threads)
+<lib/*.ml{,i}>: package(sexplib.syntax)
 # OASIS_STOP
 <lib/*.ml{,i}>: syntax_camlp4o

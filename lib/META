@@ -1,6 +1,6 @@
 # OASIS_START
-# DO NOT EDIT (digest: f9cd7914d2ffad436338b0ba41efce4d)
-version = "109.15.00"
+# DO NOT EDIT (digest: 455bac884d802fbc840262ae47e67c9f)
+version = "109.15.01"
 description = "Directory traversal with Async"
 requires = "async threads"
 archive(byte) = "async_find.cma"
