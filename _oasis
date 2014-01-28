@@ -24,11 +24,3 @@ Library async_find
                       sexplib.syntax
   XMETARequires:      async,
                       threads
-
-Document "async_find"
-  Title:                Directory traversal with Async
-  Type:                 ocamlbuild (0.3)
-  BuildTools+:          ocamldoc
-  XOCamlbuildPath:      lib
-  XOCamlbuildLibraries: async_find
-
