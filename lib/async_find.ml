@@ -127,7 +127,7 @@ let is_new t (_output_fn, _path, stats as info) =
       (match Hashtbl.find t.already_seen uid with
       | Some () -> None
       | None ->
-        Hashtbl.replace t.already_seen ~key:uid ~data:();
+        Hashtbl.set t.already_seen ~key:uid ~data:();
         Some info)
   end
 ;;
