@@ -1,0 +1,12 @@
+# OASIS_START
+# DO NOT EDIT (digest: a79a1379a9025003ae87229edcaf7b9c)
+version = "111.28.00"
+description = "Directory traversal with Async"
+requires = "async threads"
+archive(byte) = "async_find.cma"
+archive(byte, plugin) = "async_find.cma"
+archive(native) = "async_find.cmxa"
+archive(native, plugin) = "async_find.cmxs"
+exists_if = "async_find.cma"
+# OASIS_STOP
+
