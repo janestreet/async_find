@@ -195,7 +195,7 @@ let filter t file =
       | Some f -> f file >>| (fun keep -> if keep then Some file else None)
 ;;
 
-exception Attempt_to_use_closed_find of [`Most_recent_dir of string] with sexp ;;
+exception Attempt_to_use_closed_find of [`Most_recent_dir of string] [@@deriving sexp] ;;
 
 let ensure_not_closed t = if t.closed then
   raise (Attempt_to_use_closed_find
