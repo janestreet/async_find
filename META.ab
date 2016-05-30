@@ -1,6 +1,6 @@
 version = "$(pkg_version)"
 description = "Directory traversal with Async"
-requires = "async bin_prot core fieldslib ppx_assert.runtime-lib ppx_bench.runtime-lib ppx_expect.collector ppx_inline_test.runtime-lib sexplib typerep variantslib"
+requires = "async bin_prot core fieldslib ppx_assert.runtime-lib ppx_bench.runtime-lib ppx_expect.collector ppx_hash.runtime-lib ppx_inline_test.runtime-lib sexplib typerep variantslib"
 archive(byte  ) = "async_find.cma"
 archive(native) = "async_find.cmxa"
 plugin(byte  ) = "async_find.cma"
