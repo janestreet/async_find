@@ -3,15 +3,19 @@ open Async.Std
 module Stats = Unix.Stats
 
 type file_info = string * Unix.Stats.t
-type path = string list
+(* Reversed list of path components with dev and inode numbers.
+ * The base directory gets an empty string as component name.
+ * It has to be chopped of before printing, otherwise a '/ would be prepended. *)
+type path = (string * int * int) list
 
 let path_append path x = x :: path
 let path_to_string ?base path =
-  match (base, path) with
+  match (base, List.rev_map ~f:Tuple3.get1 path) with
   | None,      [] -> "."
   | Some base, [] -> base
-  | None,      _  ->         String.concat ~sep:"/" (List.rev path)
-  | Some base, _  -> base ^/ String.concat ~sep:"/" (List.rev path)
+  | None,      "" :: chopped  ->         String.concat ~sep:"/" chopped
+  | Some base, "" :: chopped  -> base ^/ String.concat ~sep:"/" chopped
+  | _,         s :: _ -> failwith "not reached."
 
 module Options = struct
   type error_handler =
@@ -52,7 +56,6 @@ module O = Options
 type t = {
   base: string;
   options: Options.t;
-  already_seen: ((int * int), unit) Hashtbl.t;  (* device num * inode *)
   mutable to_visit: (path * int) list;  (* dir to traverse and the depth it is at *)
   mutable current_dir: path;
   mutable current_handle: [ `Just_created | `Starting | `Handle of Unix.dir_handle ];
@@ -71,6 +74,7 @@ let open_next_dir t =
     match t.to_visit with
     | [] -> Ivar.fill i None
     | (dir_name, depth) :: rest ->
+        assert (List.length dir_name = depth);
         upon (Monitor.try_with ~rest:`Raise (fun () ->
           t.to_visit <- rest;
           Unix.opendir (full_path_name t dir_name) >>| (fun handle ->
@@ -111,35 +115,33 @@ let close t =
     begin
       t.closed <- true;
       closedir t >>| fun () ->
-      Hashtbl.clear t.already_seen;
       t.to_visit <- [];
     end
   else Deferred.unit
 ;;
 
-(* return None if [fn] is a directory and has already been seen, otherwise Some info *)
-let is_new t (_output_fn, _path, stats as info) =
-  if stats.Stats.kind <> `Directory then
-    return (Some info)
-  else begin
-    let uid = (stats.Stats.dev, stats.Stats.ino) in
-    return
-      (match Hashtbl.find t.already_seen uid with
-      | Some () -> None
-      | None ->
-        Hashtbl.set t.already_seen ~key:uid ~data:();
-        Some info)
-  end
-;;
-
-let stat t path =
+let stat t basename =
+  let path = path_append t.current_dir (basename, 0, 0) in
   let full_fn = full_path_name t path in
   let output_fn  = output_path_name t path in
   Monitor.try_with ~rest:`Raise (fun () ->
-      let stat = if t.options.O.follow_links then Unix.stat else Unix.lstat in
-      stat full_fn >>| (fun stat -> Some (output_fn, path, stat))
+      Unix.lstat full_fn >>= function
+      | { kind = `Link } as lstat when t.options.O.follow_links ->
+        (* Symlink. Try following it. *)
+        Monitor.try_with ~rest:`Raise (fun () -> Unix.stat full_fn)
+        >>| (function
+        | Ok { kind = `Directory; dev; ino } when
+            (* Symlink to directory.
+             * If it points to a parent dir, report only the symlink. *)
+            List.exists
+              ~f:(fun (_, dev', ino') -> dev = dev' && ino = ino')
+              t.current_dir
+          -> lstat
+        | Ok stat -> stat
+        | Error _ -> lstat)
+      | stat -> return stat
     ) >>= (function
-    | Ok r -> return r
+    | Ok stat -> return (Some (output_fn, basename, stat))
     | Error e ->
       let e = Monitor.extract_exn e in
       match t.options.O.on_stat_errors with
@@ -151,10 +153,14 @@ let stat t path =
         return None)
 ;;
 
-let handle_dirs t (output_fn, path, stats) =
+let handle_dirs t (output_fn, basename, stats) =
   let info = output_fn, stats in
   let visit () =
-    t.to_visit <- (path, (t.depth + 1)) :: t.to_visit;
+    t.to_visit <- (
+      (path_append t.current_dir Stats.(basename, stats.dev, stats.ino),
+      (t.depth + 1))
+      :: t.to_visit
+    );
     return (Some info)
   in
   let maybe_visit () =
@@ -173,15 +179,21 @@ let handle_dirs t (output_fn, path, stats) =
       >>= fun skip ->
       if skip then return None else return (Some info)
   in
-  if stats.Stats.kind = `Directory then begin
-    match t.options.O.max_depth with
-    | None           -> maybe_visit ()
-    | Some max_depth ->
-      if t.depth < max_depth then maybe_visit () else begin
-        maybe_return_info ()
-      end
-  end else
-    return (Some info)
+  match stats with
+  | { kind = `Directory; dev; ino } when
+      (* Ignore if we looped and reached a parent dir again. *)
+      t.options.O.follow_links &&
+      List.exists
+        ~f:(fun (_, dev', ino') -> dev = dev' && ino = ino')
+        t.current_dir
+    -> return None
+  | { kind = `Directory } ->
+    begin match t.options.O.max_depth with
+      | None           -> maybe_visit ()
+      | Some max_depth when t.depth < max_depth -> maybe_visit ()
+      | Some max_depth -> maybe_return_info ()
+    end
+  | _ -> return (Some info)
 ;;
 
 let filter t file =
@@ -206,7 +218,7 @@ let ensure_not_closed t = if t.closed then
 let next t =
   ensure_not_closed t;
   let i = Ivar.create () in
-  let handle_child path =
+  let handle_child basename =
     (* each function in this bind returns None if the file should be skipped, and
        Some f i if it thinks it's ok to emit - possibly updating the state or
        transforming f along the way *)
@@ -218,8 +230,7 @@ let next t =
           | None   -> return None
           | Some v -> f v
     in
-    stat t path
-    >>>= is_new t
+    stat t basename
     >>>= handle_dirs t
     >>= filter t
   in
@@ -229,8 +240,8 @@ let next t =
     | Some () -> k ())
   in
   let rec loop () =
-    let handle_child_or_loop path =
-      handle_child path
+    let handle_child_or_loop basename =
+      handle_child basename
       >>> function
       | None -> loop ()
       | r    -> Ivar.fill i r
@@ -241,7 +252,7 @@ let next t =
       | Some d when d < 0 -> upon (close t) (fun () -> Ivar.fill i None)
       | None | Some _ ->
         t.current_handle <- `Starting;
-        handle_child_or_loop t.current_dir
+        handle_child_or_loop ""
       end
     | `Starting ->
       with_next_dir loop
@@ -250,7 +261,7 @@ let next t =
         Unix.readdir current_handle)
       ) (function
       | Ok ("." | "..") -> loop ()
-      | Ok basename -> handle_child_or_loop (path_append t.current_dir basename)
+      | Ok basename -> handle_child_or_loop basename
       | Error e ->
         upon (closedir t) (fun () ->
           match Monitor.extract_exn e with
@@ -265,7 +276,6 @@ let create ?(options=Options.default) dir =
   {
     base = dir;
     options = options;
-    already_seen = Hashtbl.Poly.create () ~size:11;
     to_visit = [];
     current_dir = [];
     current_handle = `Just_created;
