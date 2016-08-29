@@ -247,15 +247,13 @@ let next t =
       with_next_dir loop
     | `Handle current_handle ->
       upon (Monitor.try_with ~rest:`Raise (fun () ->
-        Unix.readdir current_handle)
+        Unix.readdir_opt current_handle)
       ) (function
-      | Ok ("." | "..") -> loop ()
-      | Ok basename -> handle_child_or_loop (path_append t.current_dir basename)
+      | Ok (Some ("." | "..")) -> loop ()
+      | Ok (Some basename) -> handle_child_or_loop (path_append t.current_dir basename)
+      | Ok None -> upon (closedir t) (fun () -> with_next_dir loop)
       | Error e ->
-        upon (closedir t) (fun () ->
-          match Monitor.extract_exn e with
-          | End_of_file -> with_next_dir loop
-          | e -> raise e))
+        upon (closedir t) (fun () -> raise e))
   in
   loop ();
   Ivar.read i
