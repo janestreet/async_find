@@ -1,5 +1,5 @@
 (library
- ((name async_find) (wrapped false)
+ ((name async_find)
   (public_name async_find)
   (libraries (async
                     core))))
