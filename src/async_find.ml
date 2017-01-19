@@ -3,7 +3,22 @@ open Async.Std
 module Stats = Unix.Stats
 
 type file_info = string * Unix.Stats.t
+
+module Which_file = struct
+  type t = {
+    dev : int;
+    ino : int;
+  } [@@deriving fields, compare]
+  let of_stats { Stats.dev; ino; _ } = { dev; ino; }
+end
+
 type path = string list
+
+type context = {
+  depth : int;
+  dir_name : path;
+  seen : Which_file.t list;
+}
 
 let path_append path x = x :: path
 let path_to_string ?base path =
@@ -21,42 +36,41 @@ module Options = struct
     | Handle_with of (string -> unit Deferred.t)
 
   type t = {
-      min_depth: int;
-      max_depth: int option;
-      follow_links: bool;
-      on_open_errors: error_handler;
-      on_stat_errors: error_handler;
-      filter: (file_info -> bool Deferred.t) option;
-      skip_dir: (file_info -> bool Deferred.t) option;
-      relative_paths : bool;
-    }
+    min_depth: int;
+    max_depth: int option;
+    follow_links: bool;
+    on_open_errors: error_handler;
+    on_stat_errors: error_handler;
+    filter: (file_info -> bool Deferred.t) option;
+    skip_dir: (file_info -> bool Deferred.t) option;
+    relative_paths : bool;
+  }
 
   let default = {
-      min_depth = 1;
-      max_depth = None;
-      follow_links = false;
-      on_open_errors = Raise;
-      on_stat_errors = Raise;
-      filter = None;
-      skip_dir = None;
-      relative_paths = false;
-    }
+    min_depth = 1;
+    max_depth = None;
+    follow_links = false;
+    on_open_errors = Raise;
+    on_stat_errors = Raise;
+    filter = None;
+    skip_dir = None;
+    relative_paths = false;
+  }
 
-  let ignore_errors = { default with
-      on_open_errors = Ignore;
-      on_stat_errors = Ignore
-    }
+  let ignore_errors = {
+    default with
+    on_open_errors = Ignore;
+    on_stat_errors = Ignore
+  }
 end
 module O = Options
 
 type t = {
   base: string;
   options: Options.t;
-  already_seen: ((int * int), unit) Hashtbl.t;  (* device num * inode *)
-  mutable to_visit: (path * int) list;  (* dir to traverse and the depth it is at *)
-  mutable current_dir: path;
+  mutable current_context: context;
+  mutable to_visit: context list;
   mutable current_handle: [ `Just_created | `Starting | `Handle of Unix.dir_handle ];
-  mutable depth: int;
   mutable closed: bool;
 }
 
@@ -70,15 +84,14 @@ let open_next_dir t =
   let rec loop t =
     match t.to_visit with
     | [] -> Ivar.fill i None
-    | (dir_name, depth) :: rest ->
-        upon (Monitor.try_with ~rest:`Raise (fun () ->
-          t.to_visit <- rest;
-          Unix.opendir (full_path_name t dir_name) >>| (fun handle ->
+    | context :: rest ->
+      upon (Monitor.try_with ~rest:`Raise (fun () ->
+        t.to_visit <- rest;
+        Unix.opendir (full_path_name t context.dir_name) >>| (fun handle ->
           t.current_handle <- `Handle handle;
-          t.current_dir <- dir_name;
-          t.depth <- depth;
+          t.current_context <- context;
           Some ())
-        )) (function
+      )) (function
         | Ok r -> Ivar.fill i r
         | Error e ->
           let e = Monitor.extract_exn e in
@@ -86,10 +99,10 @@ let open_next_dir t =
           | O.Ignore -> loop t
           | O.Raise -> raise e
           | O.Handle_with f ->
-            upon (f (output_path_name t dir_name)) (fun () -> loop t)
+            upon (f (output_path_name t context.dir_name)) (fun () -> loop t)
           | O.Print ->
             Print.eprintf "unable to open %s - %s\n"
-              (output_path_name t dir_name) (Exn.to_string e);
+              (output_path_name t context.dir_name) (Exn.to_string e);
             loop t)
   in
   loop t;
@@ -102,8 +115,7 @@ let closedir t =
   | `Handle current_handle ->
     Deferred.ignore
       (Monitor.try_with ~rest:`Raise (fun () -> Unix.closedir current_handle)
-         : (unit, exn) Result.t Deferred.t)
-
+       : (unit, exn) Result.t Deferred.t)
 ;;
 
 let close t =
@@ -111,35 +123,29 @@ let close t =
     begin
       t.closed <- true;
       closedir t >>| fun () ->
-      Hashtbl.clear t.already_seen;
       t.to_visit <- [];
     end
   else Deferred.unit
 ;;
 
-(* return None if [fn] is a directory and has already been seen, otherwise Some info *)
-let is_new t (_output_fn, _path, stats as info) =
-  if stats.Stats.kind <> `Directory then
-    return (Some info)
-  else begin
-    let uid = (stats.Stats.dev, stats.Stats.ino) in
-    return
-      (match Hashtbl.find t.already_seen uid with
-      | Some () -> None
-      | None ->
-        Hashtbl.set t.already_seen ~key:uid ~data:();
-        Some info)
-  end
-;;
+let seen_before (context : Which_file.t list) stats =
+  List.exists ~f:([%equal: Which_file.t] (Which_file.of_stats stats)) context
 
-let stat t path =
+let stat t seen path =
   let full_fn = full_path_name t path in
   let output_fn  = output_path_name t path in
   Monitor.try_with ~rest:`Raise (fun () ->
-      let stat = if t.options.O.follow_links then Unix.stat else Unix.lstat in
-      stat full_fn >>| (fun stat -> Some (output_fn, path, stat))
-    ) >>= (function
-    | Ok r -> return r
+    Unix.lstat full_fn >>= function
+    | { kind = `Link; _ } as lstat when t.options.O.follow_links ->
+      (* Symlink. Try following it. *)
+      Unix.stat full_fn
+      >>| (function
+        (* When a symlink points to its ancestor directory, report only the symlink. *)
+        | ({ kind = `Directory; _ } as stat) when seen_before seen stat -> lstat
+        | stat -> stat)
+    | stat -> return stat
+  ) >>= (function
+    | Ok stat -> return (Some (output_fn, path, stat))
     | Error e ->
       let e = Monitor.extract_exn e in
       match t.options.O.on_stat_errors with
@@ -154,7 +160,11 @@ let stat t path =
 let handle_dirs t (output_fn, path, stats) =
   let info = output_fn, stats in
   let visit () =
-    t.to_visit <- (path, (t.depth + 1)) :: t.to_visit;
+    t.to_visit <- {
+      dir_name = path;
+      seen = Which_file.of_stats stats :: t.current_context.seen;
+      depth = t.current_context.depth + 1; }
+      :: t.to_visit;
     return (Some info)
   in
   let maybe_visit () =
@@ -173,14 +183,16 @@ let handle_dirs t (output_fn, path, stats) =
       >>= fun skip ->
       if skip then return None else return (Some info)
   in
-  if stats.Stats.kind = `Directory then begin
-    match t.options.O.max_depth with
+  match stats.Stats.kind with
+  | `Directory ->
+    begin match t.options.O.max_depth with
     | None           -> maybe_visit ()
     | Some max_depth ->
-      if t.depth < max_depth then maybe_visit () else begin
-        maybe_return_info ()
-      end
-  end else
+      if t.current_context.depth < max_depth
+      then maybe_visit ()
+      else maybe_return_info ()
+    end
+  | _ ->
     return (Some info)
 ;;
 
@@ -188,9 +200,9 @@ let filter t file =
   match file with
   | None      -> return None
   | Some file ->
-      if t.depth < t.options.O.min_depth then
-        return None
-      else match t.options.O.filter with
+    if t.current_context.depth < t.options.O.min_depth then
+      return None
+    else match t.options.O.filter with
       | None   -> return (Some file)
       | Some f -> f file >>| (fun keep -> if keep then Some file else None)
 ;;
@@ -198,8 +210,8 @@ let filter t file =
 exception Attempt_to_use_closed_find of [`Most_recent_dir of string] [@@deriving sexp] ;;
 
 let ensure_not_closed t = if t.closed then
-  raise (Attempt_to_use_closed_find
-           (`Most_recent_dir (output_path_name t t.current_dir))) ;;
+    raise (Attempt_to_use_closed_find
+             (`Most_recent_dir (output_path_name t t.current_context.dir_name))) ;;
 
 (* returns the next file from the conceptual stream and updates the state of t - this
    is the only way that t should ever be updated *)
@@ -211,22 +223,21 @@ let next t =
        Some f i if it thinks it's ok to emit - possibly updating the state or
        transforming f along the way *)
     let (>>>=)
-        : type v w. v option Deferred.t -> (v -> w option Deferred.t) -> w option Deferred.t
-        = fun v f ->
-          v
-          >>= function
-          | None   -> return None
-          | Some v -> f v
+      : type v w. v option Deferred.t -> (v -> w option Deferred.t) -> w option Deferred.t
+      = fun v f ->
+        v
+        >>= function
+        | None   -> return None
+        | Some v -> f v
     in
-    stat t path
-    >>>= is_new t
+    stat t t.current_context.seen path
     >>>= handle_dirs t
     >>= filter t
   in
   let with_next_dir k =
     upon (open_next_dir t) (function
-    | None -> upon (close t) (fun () -> Ivar.fill i None)
-    | Some () -> k ())
+      | None -> upon (close t) (fun () -> Ivar.fill i None)
+      | Some () -> k ())
   in
   let rec loop () =
     let handle_child_or_loop path =
@@ -241,7 +252,7 @@ let next t =
       | Some d when d < 0 -> upon (close t) (fun () -> Ivar.fill i None)
       | None | Some _ ->
         t.current_handle <- `Starting;
-        handle_child_or_loop t.current_dir
+        handle_child_or_loop t.current_context.dir_name
       end
     | `Starting ->
       with_next_dir loop
@@ -250,7 +261,8 @@ let next t =
         Unix.readdir_opt current_handle)
       ) (function
       | Ok (Some ("." | "..")) -> loop ()
-      | Ok (Some basename) -> handle_child_or_loop (path_append t.current_dir basename)
+      | Ok (Some basename) ->
+        handle_child_or_loop (path_append t.current_context.dir_name basename)
       | Ok None -> upon (closedir t) (fun () -> with_next_dir loop)
       | Error e ->
         upon (closedir t) (fun () -> raise e))
@@ -263,11 +275,13 @@ let create ?(options=Options.default) dir =
   {
     base = dir;
     options = options;
-    already_seen = Hashtbl.Poly.create () ~size:11;
     to_visit = [];
-    current_dir = [];
+    current_context = {
+      dir_name = [];
+      seen = [];
+      depth = 0;
+    };
     current_handle = `Just_created;
-    depth = 0;
     closed = false;
   }
 ;;
@@ -276,8 +290,8 @@ let fold t ~init ~f =
   Deferred.create (fun i ->
     let rec loop acc =
       upon (next t) (function
-      | None -> Ivar.fill i acc
-      | Some file -> upon (f acc file) loop)
+        | None -> Ivar.fill i acc
+        | Some file -> upon (f acc file) loop)
     in
     loop init)
 ;;
