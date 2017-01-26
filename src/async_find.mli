@@ -1,6 +1,6 @@
 (* The trivial rewrite of Core_extended.find - The code duplication makes me sad *)
 
-open! Core.Std
+open! Core
 open! Async.Std
 type t
 
