@@ -1,5 +1,5 @@
 open Core
-open Async.Std
+open Async
 module Stats = Unix.Stats
 
 type file_info = string * Unix.Stats.t

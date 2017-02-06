@@ -1,7 +1,7 @@
 (* The trivial rewrite of Core_extended.find - The code duplication makes me sad *)
 
 open! Core
-open! Async.Std
+open! Async
 type t
 
 module Options : sig
