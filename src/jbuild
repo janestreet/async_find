@@ -2,6 +2,7 @@
  ((name async_find)
   (public_name async_find)
   (libraries (async
-                    core))))
+                    core))
+  (preprocess (pps (ppx_jane)))))
 
 (jbuild_version jane_street)
