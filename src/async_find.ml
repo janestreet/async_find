@@ -129,7 +129,7 @@ let close t =
 ;;
 
 let seen_before (context : Which_file.t list) stats =
-  List.exists ~f:([%equal: Which_file.t] (Which_file.of_stats stats)) context
+  List.exists ~f:([%compare.equal: Which_file.t] (Which_file.of_stats stats)) context
 
 let stat t seen path =
   let full_fn = full_path_name t path in
