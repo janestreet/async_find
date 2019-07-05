@@ -113,7 +113,7 @@ let closedir t =
   match t.current_handle with
   | `Just_created | `Starting -> return ()
   | `Handle current_handle ->
-    Deferred.ignore
+    Deferred.ignore_m
       (Monitor.try_with ~rest:`Raise (fun () -> Unix.closedir current_handle)
        : (unit, exn) Result.t Deferred.t)
 ;;
