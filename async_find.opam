@@ -14,7 +14,7 @@ depends: [
   "async"
   "core"
   "ppx_jane"
-  "dune"     {build & >= "1.5.1"}
+  "dune"     {>= "1.5.1"}
 ]
 synopsis: "Directory traversal with Async"
 description: "
