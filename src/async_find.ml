@@ -85,7 +85,7 @@ let open_next_dir t =
     match t.to_visit with
     | [] -> Ivar.fill i None
     | context :: rest ->
-      upon (Monitor.try_with ~rest:`Raise (fun () ->
+      upon (Monitor.try_with ~run:(`Schedule)  ~rest:`Raise (fun () ->
         t.to_visit <- rest;
         Unix.opendir (full_path_name t context.dir_name) >>| (fun handle ->
           t.current_handle <- `Handle handle;
@@ -114,7 +114,7 @@ let closedir t =
   | `Just_created | `Starting -> return ()
   | `Handle current_handle ->
     Deferred.ignore_m
-      (Monitor.try_with ~rest:`Raise (fun () -> Unix.closedir current_handle)
+      (Monitor.try_with ~run:(`Schedule)  ~rest:`Raise (fun () -> Unix.closedir current_handle)
        : (unit, exn) Result.t Deferred.t)
 ;;
 
@@ -134,7 +134,7 @@ let seen_before (context : Which_file.t list) stats =
 let stat t seen path =
   let full_fn = full_path_name t path in
   let output_fn  = output_path_name t path in
-  Monitor.try_with ~rest:`Raise (fun () ->
+  Monitor.try_with ~run:(`Schedule)  ~rest:`Raise (fun () ->
     Unix.lstat full_fn >>= function
     | { kind = `Link; _ } as lstat when t.options.O.follow_links ->
       (* Symlink. Try following it. *)
@@ -257,7 +257,7 @@ let next t =
     | `Starting ->
       with_next_dir loop
     | `Handle current_handle ->
-      upon (Monitor.try_with ~rest:`Raise (fun () ->
+      upon (Monitor.try_with ~run:(`Schedule)  ~rest:`Raise (fun () ->
         Unix.readdir_opt current_handle)
       ) (function
       | Ok (Some ("." | "..")) -> loop ()
