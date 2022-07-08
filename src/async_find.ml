@@ -287,6 +287,11 @@ let create ?(options = Options.default) dir =
   }
 ;;
 
+let with_close ?options dir ~f =
+  let t = create ?options dir in
+  Monitor.protect (fun () -> f t) ~finally:(fun () -> close t)
+;;
+
 let fold t ~init ~f =
   Deferred.create (fun i ->
     let rec loop acc =

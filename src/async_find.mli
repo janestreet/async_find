@@ -1,4 +1,4 @@
-(* The trivial rewrite of Core_extended.find - The code duplication makes me sad *)
+(* Async implementation of the find_files library *)
 
 open! Core
 open Async
@@ -29,6 +29,10 @@ end
 
 (** [create ?options dir] create a Find.t based in dir *)
 val create : ?options:Options.t -> string -> t
+
+(** [with_close ?options dir ~f] create a Find.t based in dir, operate on it in the
+    callback, and close it once the callback finishes. *)
+val with_close : ?options:Options.t -> string -> f:(t -> 'a Deferred.t) -> 'a Deferred.t
 
 (** [next t] return the next file from the collection of valid files in t or None
     if no more files remain *)
