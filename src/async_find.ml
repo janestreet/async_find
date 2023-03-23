@@ -195,7 +195,9 @@ let handle_dirs t (output_fn, path, stats) =
     (match t.options.O.max_depth with
      | None -> maybe_visit ()
      | Some max_depth ->
-       if t.current_context.depth < max_depth then maybe_visit () else maybe_return_info ())
+       if t.current_context.depth < max_depth
+       then maybe_visit ()
+       else maybe_return_info ())
   | _ -> return (Some info)
 ;;
 
@@ -233,8 +235,7 @@ let next t =
        Some f i if it thinks it's ok to emit - possibly updating the state or
        transforming f along the way *)
     let ( >>>= )
-      : type v w.
-        v option Deferred.t -> (v -> w option Deferred.t) -> w option Deferred.t
+      : type v w. v option Deferred.t -> (v -> w option Deferred.t) -> w option Deferred.t
       =
       fun v f ->
         match%bind v with
