@@ -86,7 +86,7 @@ let open_next_dir t =
   let i = Ivar.create () in
   let rec loop t =
     match t.to_visit with
-    | [] -> Ivar.fill i None
+    | [] -> Ivar.fill_exn i None
     | context :: rest ->
       upon
         (Monitor.try_with (fun () ->
@@ -96,7 +96,7 @@ let open_next_dir t =
            t.current_context <- context;
            Some ()))
         (function
-          | Ok r -> Ivar.fill i r
+          | Ok r -> Ivar.fill_exn i r
           | Error e ->
             let e = Monitor.extract_exn e in
             (match t.options.O.on_open_errors with
@@ -238,15 +238,15 @@ let next t =
       : type v w. v option Deferred.t -> (v -> w option Deferred.t) -> w option Deferred.t
       =
       fun v f ->
-        match%bind v with
-        | None -> return None
-        | Some v -> f v
+      match%bind v with
+      | None -> return None
+      | Some v -> f v
     in
     stat t t.current_context.seen path >>>= handle_dirs t >>= filter t
   in
   let with_next_dir k =
     upon (open_next_dir t) (function
-      | None -> upon (close t) (fun () -> Ivar.fill i None)
+      | None -> upon (close t) (fun () -> Ivar.fill_exn i None)
       | Some () -> k ())
   in
   let rec loop () =
@@ -254,12 +254,12 @@ let next t =
       handle_child path
       >>> function
       | None -> loop ()
-      | r -> Ivar.fill i r
+      | r -> Ivar.fill_exn i r
     in
     match t.current_handle with
     | `Just_created ->
       (match t.options.O.max_depth with
-       | Some d when d < 0 -> upon (close t) (fun () -> Ivar.fill i None)
+       | Some d when d < 0 -> upon (close t) (fun () -> Ivar.fill_exn i None)
        | None | Some _ ->
          t.current_handle <- `Starting;
          handle_child_or_loop t.current_context.dir_name)
@@ -297,7 +297,7 @@ let fold t ~init ~f =
   Deferred.create (fun i ->
     let rec loop acc =
       upon (next t) (function
-        | None -> Ivar.fill i acc
+        | None -> Ivar.fill_exn i acc
         | Some file -> upon (f acc file) loop)
     in
     loop init)
