@@ -9,7 +9,7 @@ module Which_file = struct
     { dev : int
     ; ino : int
     }
-  [@@deriving fields, compare]
+  [@@deriving compare]
 
   let of_stats { Stats.dev; ino; _ } = { dev; ino }
 end
