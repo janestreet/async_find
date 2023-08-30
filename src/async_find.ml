@@ -96,20 +96,20 @@ let open_next_dir t =
            t.current_context <- context;
            Some ()))
         (function
-          | Ok r -> Ivar.fill_exn i r
-          | Error e ->
-            let e = Monitor.extract_exn e in
-            (match t.options.O.on_open_errors with
-             | O.Ignore -> loop t
-             | O.Raise -> raise e
-             | O.Handle_with f ->
-               upon (f (output_path_name t context.dir_name)) (fun () -> loop t)
-             | O.Print ->
-               Print.eprintf
-                 "unable to open %s - %s\n"
-                 (output_path_name t context.dir_name)
-                 (Exn.to_string e);
-               loop t))
+         | Ok r -> Ivar.fill_exn i r
+         | Error e ->
+           let e = Monitor.extract_exn e in
+           (match t.options.O.on_open_errors with
+            | O.Ignore -> loop t
+            | O.Raise -> raise e
+            | O.Handle_with f ->
+              upon (f (output_path_name t context.dir_name)) (fun () -> loop t)
+            | O.Print ->
+              Print.eprintf
+                "unable to open %s - %s\n"
+                (output_path_name t context.dir_name)
+                (Exn.to_string e);
+              loop t))
   in
   loop t;
   Ivar.read i
@@ -121,7 +121,7 @@ let closedir t =
   | `Handle current_handle ->
     Deferred.ignore_m
       (Monitor.try_with (fun () -> Unix.closedir current_handle)
-       : (unit, exn) Result.t Deferred.t)
+        : (unit, exn) Result.t Deferred.t)
 ;;
 
 let close t =
@@ -169,11 +169,11 @@ let handle_dirs t (output_fn, path, stats) =
   let info = output_fn, stats in
   let visit () =
     t.to_visit
-    <- { dir_name = path
-       ; seen = Which_file.of_stats stats :: t.current_context.seen
-       ; depth = t.current_context.depth + 1
-       }
-       :: t.to_visit;
+      <- { dir_name = path
+         ; seen = Which_file.of_stats stats :: t.current_context.seen
+         ; depth = t.current_context.depth + 1
+         }
+         :: t.to_visit;
     return (Some info)
   in
   let maybe_visit () =
@@ -268,11 +268,11 @@ let next t =
       upon
         (Monitor.try_with (fun () -> Unix.readdir_opt current_handle))
         (function
-          | Ok (Some ("." | "..")) -> loop ()
-          | Ok (Some basename) ->
-            handle_child_or_loop (path_append t.current_context.dir_name basename)
-          | Ok None -> upon (closedir t) (fun () -> with_next_dir loop)
-          | Error e -> upon (closedir t) (fun () -> raise e))
+         | Ok (Some ("." | "..")) -> loop ()
+         | Ok (Some basename) ->
+           handle_child_or_loop (path_append t.current_context.dir_name basename)
+         | Ok None -> upon (closedir t) (fun () -> with_next_dir loop)
+         | Error e -> upon (closedir t) (fun () -> raise e))
   in
   loop ();
   Ivar.read i
