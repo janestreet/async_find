@@ -4,13 +4,15 @@ open! Core
 open Async
 
 type t
+type file_info = Filename.t * Unix.Stats.t
 
 module Options : sig
+  (** See {!Find_files.Options} for documentation. *)
   type error_handler =
     | Ignore
     | Print
     | Raise
-    | Handle_with of (string -> unit Deferred.t)
+    | Handle_with of (Filename.t -> unit Deferred.t)
 
   type t =
     { min_depth : int
@@ -18,8 +20,8 @@ module Options : sig
     ; follow_links : bool
     ; on_open_errors : error_handler
     ; on_stat_errors : error_handler
-    ; filter : (string * Unix.Stats.t -> bool Deferred.t) option
-    ; skip_dir : (string * Unix.Stats.t -> bool Deferred.t) option
+    ; filter : (file_info -> bool Deferred.t) option
+    ; skip_dir : (file_info -> bool Deferred.t) option
     ; relative_paths : bool
     }
 

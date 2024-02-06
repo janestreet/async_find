@@ -2,7 +2,7 @@ open Core
 open Async
 module Stats = Unix.Stats
 
-type file_info = string * Stats.t
+type file_info = Filename.t * Stats.t
 
 module Which_file = struct
   type t =
@@ -37,7 +37,7 @@ module Options = struct
     | Ignore
     | Print
     | Raise
-    | Handle_with of (string -> unit Deferred.t)
+    | Handle_with of (Filename.t -> unit Deferred.t)
 
   type t =
     { min_depth : int
