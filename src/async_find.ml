@@ -37,7 +37,7 @@ module Options = struct
     | Ignore
     | Print
     | Raise
-    | Handle_with of (Filename.t -> unit Deferred.t)
+    | Handle_with of (Filename.t -> exn -> unit Deferred.t)
 
   type t =
     { min_depth : int
@@ -103,7 +103,7 @@ let open_next_dir t =
             | O.Ignore -> loop t
             | O.Raise -> raise e
             | O.Handle_with f ->
-              upon (f (output_path_name t context.dir_name)) (fun () -> loop t)
+              upon (f (output_path_name t context.dir_name) e) (fun () -> loop t)
             | O.Print ->
               Print.eprintf
                 "unable to open %s - %s\n"
@@ -158,7 +158,7 @@ let stat t seen path =
      | O.Ignore -> return None
      | O.Raise -> raise e
      | O.Handle_with f ->
-       let%map () = f output_fn in
+       let%map () = f output_fn e in
        None
      | O.Print ->
        Print.eprintf "unable to stat %s - %s\n" output_fn (Exn.to_string e);

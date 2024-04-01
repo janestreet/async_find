@@ -12,7 +12,7 @@ module Options : sig
     | Ignore
     | Print
     | Raise
-    | Handle_with of (Filename.t -> unit Deferred.t)
+    | Handle_with of (Filename.t -> exn -> unit Deferred.t)
 
   type t =
     { min_depth : int
