@@ -1,4 +1,7 @@
-(* Async implementation of the find_files library *)
+(** Async implementation of the find_files library
+ *
+ * Note: Unlike Unix [find], the functions in this module do not produce paths in
+ * depth-first order. *)
 
 open! Core
 open Async
