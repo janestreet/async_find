@@ -225,15 +225,15 @@ let ensure_not_closed t =
          (`Most_recent_dir (output_path_name t t.current_context.dir_name)))
 ;;
 
-(* returns the next file from the conceptual stream and updates the state of t - this
-   is the only way that t should ever be updated *)
+(* returns the next file from the conceptual stream and updates the state of t - this is
+   the only way that t should ever be updated *)
 let next t =
   ensure_not_closed t;
   let i = Ivar.create () in
   let handle_child path =
-    (* each function in this bind returns None if the file should be skipped, and
-       Some f i if it thinks it's ok to emit - possibly updating the state or
-       transforming f along the way *)
+    (* each function in this bind returns None if the file should be skipped, and Some f i
+       if it thinks it's ok to emit - possibly updating the state or transforming f along
+       the way *)
     let ( >>>= )
       : type v w. v option Deferred.t -> (v -> w option Deferred.t) -> w option Deferred.t
       =
